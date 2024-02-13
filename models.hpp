@@ -18,7 +18,7 @@ namespace models {
   };
 
   struct Balance {
-    int 
+    int
       total;
     int
       limite;
