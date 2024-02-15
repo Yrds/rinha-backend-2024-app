@@ -35,7 +35,9 @@ namespace models {
   };
 
   struct Extract {
-    BalanceHistory saldo;
-    std::vector<TransactionHistory> ultimas_transacoes;
+    BalanceHistory
+      saldo;
+    std::vector<TransactionHistory> 
+      ultimas_transacoes;
   };
 }

@@ -8,7 +8,12 @@ deps += subproject('cpp-httplib').get_variable('cpp_httplib_dep')
 deps += subproject('sqlite3').get_variable('sqlite3_dep')
 deps += subproject('nlohmann_json').get_variable('nlohmann_json_dep')
 
-exe = executable('rinha-2024-q1-project', 'rinha_2024_q1_project.cpp',
+src = files(
+  'src/rinha_2024_q1_project.cpp',
+  'src/database.cpp'
+  )
+
+exe = executable('rinha-2024-q1-project', src,
   install : true, dependencies: deps)
 
 test('basic', exe)

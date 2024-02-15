@@ -1,6 +1,7 @@
 #include <iostream>
 #include "httplib.h"
 #include "nlohmann/json.hpp"
+#include "database.hpp"
 
 #define PROJECT_NAME "rinha-2024-q1-project"
 
@@ -10,12 +11,13 @@ extract(const httplib::Request &, httplib::Response &res) {
         {"test", 10}
         });
 
-    std::cout << "oi" << std::endl;
     res.set_content(data.dump(4), "application/json");
 }
 
 int
 main(int argc, char **argv) {
+
+    auto connection = database::getConnection();
     // HTTP
     httplib::Server svr;
 

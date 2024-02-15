@@ -1,2 +1,5 @@
 # vim
 Session.vim
+
+subprojects/*
+!subprojects/*.wrap
