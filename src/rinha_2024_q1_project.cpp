@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include "httplib.h"
 #include "nlohmann/json.hpp"
 #include "database.hpp"
@@ -7,6 +8,8 @@
 
 void
 extract(const httplib::Request &, httplib::Response &res) {
+    auto connection = database::getConnection();
+
     auto data = nlohmann::json({
         {"test", 10}
         });
@@ -14,10 +17,28 @@ extract(const httplib::Request &, httplib::Response &res) {
     res.set_content(data.dump(4), "application/json");
 }
 
+
+void initDatabase() {
+
+    std::fstream s{"init.sql", s.binary | s.trunc | s.in | s.out};
+
+    if(!s.is_open()) {
+        return;
+    }
+
+    auto connection = database::getConnection();
+
+    std::string sql;
+
+    s >> sql;
+
+    database::run_stmt(connection.get(), sql.c_str());
+}
+
 int
 main(int argc, char **argv) {
 
-    auto connection = database::getConnection();
+    initDatabase();
     // HTTP
     httplib::Server svr;
 

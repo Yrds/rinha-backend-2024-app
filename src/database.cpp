@@ -29,4 +29,20 @@ std::unique_ptr<Connection, void(*)(Connection*)> getConnection() {
   return std::unique_ptr<Connection, void (*)(Connection *)>(new Connection(), deleteConnection);
 }
 
+void run_stmt(Connection* connection, const char* sql) {
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(connection->db, sql, 1024, &stmt, nullptr);
+
+    int step = SQLITE_OK;
+
+    do {
+      step = sqlite3_step(stmt);
+
+      std::cout << sqlite3_column_int(stmt, 0) << std::endl;
+    }
+    while(step == SQLITE_OK);
+    
+    sqlite3_finalize(stmt);
+}
+
 }
