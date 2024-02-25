@@ -23,7 +23,6 @@ struct Connection {
 
 void deleteConnection(Connection* connection) {
   sqlite3_close(connection->db);
-
 };
 
 std::unique_ptr<Connection, void(*)(Connection*)> getConnection() {
