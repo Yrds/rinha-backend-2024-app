@@ -10,13 +10,6 @@ struct Connection {
 
   Connection() {
     sqlite3_open("database.db", &db);
-
-    sqlite3_stmt* stmt;
-    sqlite3_prepare_v2(db, "SELECT * FROM test", 1024, &stmt, nullptr);
-    while(sqlite3_step(stmt) != SQLITE_DONE) {
-      std::cout << sqlite3_column_int(stmt, 0) << std::endl;
-    }
-    sqlite3_finalize(stmt);
   }
 
 };
@@ -33,16 +26,50 @@ void run_stmt(Connection* connection, const char* sql) {
     sqlite3_stmt* stmt;
     sqlite3_prepare_v2(connection->db, sql, 1024, &stmt, nullptr);
 
-    int step = SQLITE_OK;
+    int rc;
 
-    do {
-      step = sqlite3_step(stmt);
+    char *zErrMsg = 0;
 
-      std::cout << sqlite3_column_int(stmt, 0) << std::endl;
+    rc = sqlite3_exec(connection->db, sql, nullptr, 0, &zErrMsg);
+
+    if(rc != SQLITE_OK) {
+      std::cerr << zErrMsg << std::endl;
+      sqlite3_free(zErrMsg);
     }
-    while(step == SQLITE_OK);
-    
-    sqlite3_finalize(stmt);
+}
+
+models::Extract getExtractByClientId(Connection* connection, int clientId) {
+    sqlite3_stmt* stmt;
+
+    auto sql = "SELECT valor, data_extrato, limite FROM saldos WHERE cliente_id = ?";
+    sqlite3_prepare_v2(connection->db, sql, 1024, &stmt, nullptr);
+
+    sqlite3_bind_int(stmt, 0, clientId);
+
+    int rc;
+
+    char *zErrMsg = 0;
+
+    models::Extract extract; 
+
+    rc = sqlite3_exec(connection->db, sql, [](void *extractPtr, int argc, char **argv, char **azColName) -> int {
+          models::Extract* extract = static_cast<models::Extract*>(extractPtr);
+
+          int i;
+          for (i = 0; i < argc; i++) {
+            printf("%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
+          }
+          printf("\n");
+
+          return 0;
+        }, 0, &zErrMsg);
+
+    if(rc != SQLITE_OK) {
+      std::cerr << zErrMsg << std::endl;
+      sqlite3_free(zErrMsg);
+    }
+
+    return models::Extract();
 }
 
 }
