@@ -38,38 +38,45 @@ void run_stmt(Connection* connection, const char* sql) {
     }
 }
 
-models::Extract getExtractByClientId(Connection* connection, int clientId) {
+std::expected<models::Extract, std::string>
+getExtractByClientId(Connection* connection, int clientId) {
+
+    auto sql = R"(
+      SELECT s.valor as total, c.limite as limite
+      FROM clientes as c, saldos as s
+      WHERE cliente_id = ? AND s.cliente_id = c.id
+      LIMIT 1;
+    )";
+
     sqlite3_stmt* stmt;
 
-    auto sql = "SELECT valor, data_extrato, limite FROM saldos WHERE cliente_id = ?";
-    sqlite3_prepare_v2(connection->db, sql, 1024, &stmt, nullptr);
+    sqlite3_prepare_v2(connection->db, sql, 256, &stmt, nullptr);
 
-    sqlite3_bind_int(stmt, 0, clientId);
+    int rc = sqlite3_bind_int(stmt, 1, clientId);
 
-    int rc;
+    rc = sqlite3_step(stmt);
 
-    char *zErrMsg = 0;
-
-    models::Extract extract; 
-
-    rc = sqlite3_exec(connection->db, sql, [](void *extractPtr, int argc, char **argv, char **azColName) -> int {
-          models::Extract* extract = static_cast<models::Extract*>(extractPtr);
-
-          int i;
-          for (i = 0; i < argc; i++) {
-            printf("%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
-          }
-          printf("\n");
-
-          return 0;
-        }, 0, &zErrMsg);
-
-    if(rc != SQLITE_OK) {
-      std::cerr << zErrMsg << std::endl;
-      sqlite3_free(zErrMsg);
+    if(rc == SQLITE_DONE) {
+      sqlite3_finalize(stmt);
+      return std::unexpected("Not found");
     }
 
-    return models::Extract();
+    if(rc == SQLITE_ROW) {
+      models::Extract extract;
+
+      extract.saldo.total = sqlite3_column_int(stmt, 0);
+      extract.saldo.limite = sqlite3_column_int(stmt, 1);
+      extract.saldo.data_extrato = std::chrono::system_clock::now(),
+      extract.ultimas_transacoes = {};
+
+      return extract;
+      sqlite3_finalize(stmt);
+    }
+
+    sqlite3_finalize(stmt);
+
+    return std::unexpected("Unknown error");
 }
+
 
 }

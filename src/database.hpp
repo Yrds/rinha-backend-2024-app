@@ -1,5 +1,5 @@
 #include <memory>
-#include <string_view>
+#include <expected>
 
 #include "models.hpp"
 
@@ -12,6 +12,8 @@ std::unique_ptr<Connection, void(*)(Connection*)> getConnection();
 void run_stmt(Connection*, const char *);
 
 //Model operations
-models::Extract getExtractByClientId(Connection* connection, int clientId);
+
+std::expected<models::Extract, std::string>
+getExtractByClientId(Connection* connection, int clientId);
 
 }
