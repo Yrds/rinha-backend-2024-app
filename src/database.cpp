@@ -67,15 +67,55 @@ getExtractByClientId(Connection* connection, int clientId) {
       extract.saldo.total = sqlite3_column_int(stmt, 0);
       extract.saldo.limite = sqlite3_column_int(stmt, 1);
       extract.saldo.data_extrato = std::chrono::system_clock::now(),
-      extract.ultimas_transacoes = {};
 
-      return extract;
       sqlite3_finalize(stmt);
+      return extract;
+    }
+
+    sqlite3_finalize(stmt);
+    return std::unexpected("Unknown error " + std::to_string(rc));
+}
+
+std::expected<std::vector<models::TransactionHistory>, std::string>
+getLastTransactionsByClientId(Connection* connection, int clientId) {
+
+    auto sql = R"(
+      SELECT valor, tipo, descricao, realizada_em
+      FROM transacoes
+      WHERE cliente_id = ?
+      LIMIT 10;
+    )";
+
+    sqlite3_stmt* stmt;
+
+    sqlite3_prepare_v2(connection->db, sql, 256, &stmt, nullptr);
+
+    int rc = sqlite3_bind_int(stmt, 1, clientId);
+
+    rc = sqlite3_step(stmt);
+
+    std::vector<models::TransactionHistory> transactionHistory;
+
+
+    while(rc == SQLITE_ROW) {
+      const auto type = static_cast<models::TRANSACTION_TYPE>(*(sqlite3_column_text(stmt, 1)));
+      transactionHistory.push_back(models::TransactionHistory{
+        sqlite3_column_int(stmt, 0),
+        type,
+        "", //std::basic_string<const unsigned char*>{sqlite3_column_text(stmt, 2)},
+        std::chrono::system_clock::now()
+      });
+
+      rc = sqlite3_step(stmt);
     }
 
     sqlite3_finalize(stmt);
 
-    return std::unexpected("Unknown error");
+    if(rc == SQLITE_DONE) {
+      return transactionHistory;
+    }
+
+    return std::unexpected("Unknown error " + std::to_string(rc));
 }
 
 

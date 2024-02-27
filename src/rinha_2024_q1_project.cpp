@@ -18,13 +18,31 @@ extract(const httplib::Request &req, httplib::Response &res) {
     auto result = database::getExtractByClientId(connection.get(), clientId);
 
     if (result.has_value()) {
+
       auto& extract = *result;
 
+      auto transactionResult = database::getLastTransactionsByClientId(connection.get(), clientId);
+
+      if(transactionResult.has_value()) {
+        extract.ultimas_transacoes = *transactionResult;
+      }
+
       nlohmann::json data;
-      data["saldo"]["data_extrato"] = std::format("{0:%FT%TZ}Z", extract.saldo.data_extrato);
+      data["saldo"]["data_extrato"] = std::format("{0:%FT%TZ}", extract.saldo.data_extrato);
       data["saldo"]["limite"] = extract.saldo.limite;
       data["saldo"]["total"] = extract.saldo.total;
       data["saldo"]["ultimas_transacoes"] = nlohmann::json::array();
+
+      for(const auto& transaction: extract.ultimas_transacoes) {
+        nlohmann::json transactionData;
+
+        transactionData["valor"] = transaction.valor;
+        transactionData["tipo"] = transaction.tipo;
+        transactionData["descricao"] = transaction.descricao;
+        transactionData["realizada_em"] = std::format("{0:%FT%TZ}", transaction.realizada_em);
+
+        data["saldo"]["ultimas_transacoes"].push_back(transactionData);
+      }
 
       res.set_content(data.dump(), "application/json");
       return;
@@ -61,7 +79,7 @@ void initDatabase() {
 int
 main(int argc, char **argv) {
 
-    initDatabase();
+    //initDatabase();
     // HTTP
     httplib::Server svr;
 

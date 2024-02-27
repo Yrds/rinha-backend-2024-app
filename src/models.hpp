@@ -3,7 +3,7 @@
 #include <vector>
 
 namespace models {
-  enum TRANSACTION_TYPE {
+  enum TRANSACTION_TYPE: const unsigned char {
     DEBIT = 'd',
     CREDIT = 'c'
   };
@@ -14,7 +14,7 @@ namespace models {
     TRANSACTION_TYPE
       tipo;
     std::string
-      description;
+      descricao;
   };
 
   struct Balance {
