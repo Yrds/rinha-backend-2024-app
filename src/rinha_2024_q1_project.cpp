@@ -78,14 +78,45 @@ createTransaction(const httplib::Request &req, httplib::Response &res) {
    data["descricao"].template get<std::string>()
   };
 
+  if(transaction.descricao.size() > 10) {
+    res.status = 422;
+    res.set_content("Descrição maior do que 10 caracteres", "text/html");
+  }
+
   auto connection = database::getConnection();
 
   auto clientId = std::stoi(req.path_params.at("id"));
 
-  auto response = database::createTransaction(connection.get(), clientId, transaction);
+  auto balanceResult = database::getBalance(connection.get(), clientId);
 
-  if(response.has_value()) {
-    const auto responseObject = *response;
+  if(balanceResult.error() == "Not found") {
+    res.status = 404;
+    res.set_content("", "text/html");
+    return;
+  }
+
+  if(!balanceResult.has_value()) {
+    res.status = 404;
+    res.set_content(balanceResult.error(), "text/html");
+    return;
+  }
+
+  auto balance = *balanceResult;
+
+  if(transaction.tipo == models::TRANSACTION_TYPE::DEBIT &&
+    balance.saldo - transaction.valor < -(balance.limite)) {
+
+    res.status = 422;
+    res.set_content("", "text/html");
+    return;
+  }
+
+  auto response = database::createTransaction(connection.get(), clientId, transaction, balance);
+
+  if(response == "OK") {
+
+    auto balanceResult = database::getBalance(connection.get(), clientId);
+    auto responseObject = *balanceResult;
 
     nlohmann::json responseJson;
     responseJson["limite"] = responseObject.limite;
@@ -94,7 +125,7 @@ createTransaction(const httplib::Request &req, httplib::Response &res) {
     res.status = 200;
     res.set_content(responseJson.dump(), "application/json");
   } else {
-    res.set_content(response.error(), "text/html");
+    res.set_content(response, "text/html");
     res.status = 500;
   }
 }

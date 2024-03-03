@@ -84,9 +84,10 @@ std::expected<std::vector<models::TransactionHistory>, std::string>
 getLastTransactionsByClientId(Connection* connection, int clientId) {
 
     auto sql = R"(
-      SELECT valor, tipo, descricao, realizada_em
+      SELECT valor, tipo, descricao, strftime('%s', realizada_em)
       FROM transacoes
       WHERE cliente_id = ?
+      ORDER BY realizada_em DESC
       LIMIT 10;
     )";
 
@@ -104,11 +105,17 @@ getLastTransactionsByClientId(Connection* connection, int clientId) {
       std::basic_string<unsigned char> type {sqlite3_column_text(stmt, 1)};
       std::string description{reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2))};
       transactionHistory.push_back(models::TransactionHistory{
+      {
         sqlite3_column_int(stmt, 0),
+
         static_cast<models::TRANSACTION_TYPE>(type.at(0)),
-        description,
-        std::chrono::system_clock::now() //TODO get description from database
-      });
+
+        description
+      },
+      std::chrono::time_point<std::chrono::system_clock, std::chrono::seconds>{
+        std::chrono::seconds{sqlite3_column_int(stmt, 3)}
+      }
+    });
 
       rc = sqlite3_step(stmt);
     }
@@ -122,12 +129,14 @@ getLastTransactionsByClientId(Connection* connection, int clientId) {
     return std::unexpected("Unknown error " + std::to_string(rc));
 }
 
-std::expected<models::TransactionResponse, std::string>
-createTransaction(Connection* connection, const int clientId, const models::Transaction& transaction) {
+std::string
+createTransaction(Connection* connection, const int clientId, const models::Transaction& transaction, const models::TransactionResponse& transactionResponse) {
     auto sql = R"(
       INSERT INTO transacoes(cliente_id, valor, tipo, descricao, realizada_em)
       values(?, ?, ?, ?, ?);
+      UPDATE saldos SET valor = ? WHERE cliente_id = ?;
     )";
+    //IDEA put RETURNING INTO in "INSERT" statement and set as parameter to cliente_id UPDATE statement
 
     sqlite3_stmt* stmt = nullptr;
 
@@ -144,15 +153,63 @@ createTransaction(Connection* connection, const int clientId, const models::Tran
     const std::string transactionTimeFormated = std::format("{0:%FT%TZ}", std::chrono::system_clock::now());
     rc = sqlite3_bind_text(stmt, 5, transactionTimeFormated.c_str(), transactionTimeFormated.size(), SQLITE_STATIC);
 
+    rc = sqlite3_bind_int(stmt, 6, transactionResponse.saldo - transaction.valor);
+    rc = sqlite3_bind_int(stmt, 7, clientId);
+
     rc = sqlite3_step(stmt);
+
+    while(rc != SQLITE_DONE) {
+      rc = sqlite3_step(stmt);
+    }
+
 
     sqlite3_finalize(stmt);
 
     if(rc == SQLITE_DONE) {
-      return models::TransactionResponse();
+      return "OK";
+    }
+
+    return std::string("Unknown error " + std::to_string(rc));
+}
+
+
+std::expected<models::TransactionResponse, std::string>
+getBalance(Connection* connection, int clientId) {
+    auto sql = R"(
+        SELECT s.valor, c.limite
+        FROM saldos as s, clientes as c
+        WHERE
+            c.id = ? AND
+            s.cliente_id = c.id
+        LIMIT 1;
+    )";
+
+    sqlite3_stmt* stmt = nullptr;
+
+    int rc = sqlite3_prepare_v2(connection->db, sql, 256, &stmt, nullptr);
+
+    rc = sqlite3_bind_int(stmt, 1, clientId);
+
+    rc = sqlite3_step(stmt);
+
+    if(rc == SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        return std::unexpected("Not found");
+    }
+
+    if(rc == SQLITE_ROW) {
+        models::TransactionResponse transactionResponse{
+            sqlite3_column_int(stmt, 1),
+            sqlite3_column_int(stmt, 0)
+        };
+
+        sqlite3_finalize(stmt);
+
+        return transactionResponse;
     }
 
     return std::unexpected("Unknown error " + std::to_string(rc));
 }
+
 
 }

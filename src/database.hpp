@@ -19,7 +19,10 @@ std::expected<models::Extract, std::string>
 std::expected<std::vector<models::TransactionHistory>, std::string>
   getLastTransactionsByClientId(Connection* connection, int clientId);
 
+std::string
+  createTransaction(Connection* connection, const int clientId, const models::Transaction& transaction, const models::TransactionResponse& transactionResponse);
+
 std::expected<models::TransactionResponse, std::string>
-createTransaction(Connection* connection, const int clientId, const models::Transaction& transaction);
+  getBalance(Connection* connection, int clientId);
 
 }
