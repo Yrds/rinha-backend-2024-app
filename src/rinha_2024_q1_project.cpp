@@ -37,7 +37,7 @@ extract(const httplib::Request &req, httplib::Response &res) {
         nlohmann::json transactionData;
 
         transactionData["valor"] = transaction.valor;
-        transactionData["tipo"] = transaction.tipo;
+        transactionData["tipo"] = std::string{static_cast<char>(transaction.tipo)};
         transactionData["descricao"] = transaction.descricao;
         transactionData["realizada_em"] = std::format("{0:%FT%TZ}", transaction.realizada_em);
 
@@ -48,13 +48,39 @@ extract(const httplib::Request &req, httplib::Response &res) {
       return;
     }
 
-    if(result.error() == "Not found") {
-      res.status = 404;
-    }
+    res.status = result.error() == "Not found" ? 404 : 500;
 
     res.set_content(result.error(), "text/html");
 }
 
+void
+createTransaction(const httplib::Request &req, httplib::Response &res) {
+  nlohmann::json data = nlohmann::json::parse(req.body);
+
+  std::cout << data << std::endl;
+
+  std::basic_string<unsigned char> transactionType {reinterpret_cast<const unsigned char*>(
+         data["tipo"].template get<std::string>().c_str()
+         )};
+
+  const models::Transaction transaction {
+   data["valor"].template get<int>(),
+   static_cast<models::TRANSACTION_TYPE>(transactionType.at(0)),
+   data["descricao"].template get<std::string>()
+  };
+
+  auto connection = database::getConnection();
+
+  auto clientId = std::stoi(req.path_params.at("id"));
+
+  auto response = database::createTransaction(connection.get(), clientId, transaction);
+
+  std::cout << response << std::endl;
+
+  if(response != "OK") {
+    res.status = 500;
+  }
+}
 
 void initDatabase() {
     namespace fs = std::filesystem;
@@ -84,6 +110,7 @@ main(int argc, char **argv) {
     httplib::Server svr;
 
     svr.Get(R"(/clientes/:id/extrato)", extract);
+    svr.Post(R"(/clientes/:id/transacoes)", createTransaction);
 
     svr.listen("0.0.0.0", 8080);
     return 0;
