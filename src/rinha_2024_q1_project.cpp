@@ -59,6 +59,15 @@ createTransaction(const httplib::Request &req, httplib::Response &res) {
 
   std::cout << data << std::endl;
 
+  /*flow
+   * start transaction
+   * verify if transaction.valor are greater than limite/saldo
+   *  if not return 402 and end transaction
+   *  if yes, proceed
+   * if yes, then procede with a (database)transaction to lock table
+   * return new balance(TransactionResponse)
+   */
+
   std::basic_string<unsigned char> transactionType {reinterpret_cast<const unsigned char*>(
          data["tipo"].template get<std::string>().c_str()
          )};
@@ -75,9 +84,17 @@ createTransaction(const httplib::Request &req, httplib::Response &res) {
 
   auto response = database::createTransaction(connection.get(), clientId, transaction);
 
-  std::cout << response << std::endl;
+  if(response.has_value()) {
+    const auto responseObject = *response;
 
-  if(response != "OK") {
+    nlohmann::json responseJson;
+    responseJson["limite"] = responseObject.limite;
+    responseJson["saldo"] = responseObject.saldo;
+
+    res.status = 200;
+    res.set_content(responseJson.dump(), "application/json");
+  } else {
+    res.set_content(response.error(), "text/html");
     res.status = 500;
   }
 }

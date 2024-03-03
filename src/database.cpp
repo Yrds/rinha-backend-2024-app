@@ -122,7 +122,7 @@ getLastTransactionsByClientId(Connection* connection, int clientId) {
     return std::unexpected("Unknown error " + std::to_string(rc));
 }
 
-std::string
+std::expected<models::TransactionResponse, std::string>
 createTransaction(Connection* connection, const int clientId, const models::Transaction& transaction) {
     auto sql = R"(
       INSERT INTO transacoes(cliente_id, valor, tipo, descricao, realizada_em)
@@ -149,10 +149,10 @@ createTransaction(Connection* connection, const int clientId, const models::Tran
     sqlite3_finalize(stmt);
 
     if(rc == SQLITE_DONE) {
-      return "OK";
+      return models::TransactionResponse();
     }
 
-    return std::string("Unknown error " + std::to_string(rc));
+    return std::unexpected("Unknown error " + std::to_string(rc));
 }
 
 }

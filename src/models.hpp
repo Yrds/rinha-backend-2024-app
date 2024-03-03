@@ -24,6 +24,13 @@ namespace models {
       limite;
   };
 
+  struct TransactionResponse {
+    int
+      limite;
+    int
+      saldo;
+  };
+
   struct BalanceHistory: public Balance {
     std::chrono::time_point<std::chrono::system_clock>
       data_extrato;
