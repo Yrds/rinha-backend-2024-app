@@ -131,10 +131,12 @@ getLastTransactionsByClientId(Connection* connection, int clientId) {
 
 std::string
 createTransaction(Connection* connection, const int clientId, const models::Transaction& transaction, const models::TransactionResponse& transactionResponse) {
+
+    sqlite3_exec(connection->db, "BEGIN TRANSACTION;", 0, 0, 0);
+
     auto sql = R"(
       INSERT INTO transacoes(cliente_id, valor, tipo, descricao, realizada_em)
       values(?, ?, ?, ?, ?);
-      UPDATE saldos SET valor = ? WHERE cliente_id = ?;
     )";
     //IDEA put RETURNING INTO in "INSERT" statement and set as parameter to cliente_id UPDATE statement
 
@@ -153,19 +155,34 @@ createTransaction(Connection* connection, const int clientId, const models::Tran
     const std::string transactionTimeFormated = std::format("{0:%FT%TZ}", std::chrono::system_clock::now());
     rc = sqlite3_bind_text(stmt, 5, transactionTimeFormated.c_str(), transactionTimeFormated.size(), SQLITE_STATIC);
 
-    rc = sqlite3_bind_int(stmt, 6, transactionResponse.saldo - transaction.valor);
-    rc = sqlite3_bind_int(stmt, 7, clientId);
-
     rc = sqlite3_step(stmt);
 
     while(rc != SQLITE_DONE) {
       rc = sqlite3_step(stmt);
     }
 
+    sqlite3_finalize(stmt);
+
+    if(rc != SQLITE_DONE) {
+
+      return std::string("Unknown error " + std::to_string(rc));
+    }
+
+    auto updateSql = "UPDATE saldos SET valor = ? WHERE cliente_id = ?;";
+
+    rc = sqlite3_prepare_v2(connection->db, updateSql, 256, &stmt, nullptr);
+
+    rc = sqlite3_bind_int(stmt, 1, transactionResponse.saldo - transaction.valor);
+    rc = sqlite3_bind_int(stmt, 2, clientId);
+
+    while(rc != SQLITE_DONE) {
+      rc = sqlite3_step(stmt);
+    }
 
     sqlite3_finalize(stmt);
 
     if(rc == SQLITE_DONE) {
+      sqlite3_exec(connection->db, "COMMIT TRANSACTION;", 0, 0, 0);
       return "OK";
     }
 
