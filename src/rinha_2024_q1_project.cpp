@@ -96,7 +96,7 @@ createTransaction(const httplib::Request &req, httplib::Response &res) {
   }
 
   if(!balanceResult.has_value()) {
-    res.status = 404;
+    res.status = 500;
     res.set_content(balanceResult.error(), "text/html");
     return;
   }
@@ -104,7 +104,7 @@ createTransaction(const httplib::Request &req, httplib::Response &res) {
   auto balance = *balanceResult;
 
   if(transaction.tipo == models::TRANSACTION_TYPE::DEBIT &&
-    balance.saldo - transaction.valor < -(balance.limite)) {
+    balance.saldo - transaction.valor >= -(balance.limite)) {
 
     res.status = 422;
     res.set_content("", "text/html");
@@ -153,13 +153,13 @@ void initDatabase() {
 int
 main(int argc, char **argv) {
 
-    //initDatabase();
+    initDatabase();
     // HTTP
     httplib::Server svr;
 
     svr.Get(R"(/clientes/:id/extrato)", extract);
     svr.Post(R"(/clientes/:id/transacoes)", createTransaction);
 
-    svr.listen("0.0.0.0", 8080);
+    svr.listen("0.0.0.0", 9999);
     return 0;
 }

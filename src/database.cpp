@@ -163,6 +163,11 @@ createTransaction(Connection* connection, const int clientId, const models::Tran
 
     sqlite3_finalize(stmt);
 
+    if(rc == SQLITE_DONE && transaction.tipo == models::TRANSACTION_TYPE::CREDIT) {
+      sqlite3_exec(connection->db, "COMMIT TRANSACTION;", 0, 0, 0);
+      return "OK";
+    }
+
     if(rc != SQLITE_DONE) {
 
       return std::string("Unknown error " + std::to_string(rc));
