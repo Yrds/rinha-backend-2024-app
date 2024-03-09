@@ -13,7 +13,13 @@ void
 extract(const httplib::Request &req, httplib::Response &res) {
     auto connection = database::getConnection();
 
-    auto clientId = std::stoi(req.path_params.at("id"));
+    //TODO stoi fix
+    auto clientId = std::stoi(req.path_params.find("id"));
+
+    if (clientId != req.path_params.end()) {
+      res.status = 422;
+      return;
+    }
 
     auto result = database::getExtractByClientId(connection.get(), clientId);
 
@@ -27,7 +33,7 @@ extract(const httplib::Request &req, httplib::Response &res) {
           break;
       }
 
-      res.set_content("", "text/html");
+      return;
     }
 
     auto &extract = *result;
