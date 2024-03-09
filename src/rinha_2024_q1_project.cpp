@@ -72,6 +72,25 @@ extract(const httplib::Request &req, httplib::Response &res) {
 void
 createTransaction(const httplib::Request &req, httplib::Response &res) {
   nlohmann::json data = nlohmann::json::parse(req.body);
+
+  if(data["tipo"].empty() || !data["tipo"].is_string()) {
+      res.status = 422;
+      res.set_content("", "text/html");
+      return;
+  }
+
+  if(data["valor"].empty() || !data["valor"].is_number()) {
+      res.status = 422;
+      res.set_content("", "text/html");
+      return;
+  }
+
+  if(data["descricao"].empty() || !data["descricao"].is_string()) {
+      res.status = 422;
+      res.set_content("", "text/html");
+      return;
+  }
+
   //FIXME Validate json
 
   auto clientId = std::stoi(req.path_params.at("id"));
@@ -99,7 +118,7 @@ createTransaction(const httplib::Request &req, httplib::Response &res) {
     return;
   }
 
-  if (transaction.descricao.size() >= 10) {
+  if (transaction.descricao.size() >= 10 || transaction.descricao.size() == 0) {
     res.status = 422;
     res.set_content("", "text/html");
     return;
@@ -139,7 +158,7 @@ createTransaction(const httplib::Request &req, httplib::Response &res) {
 
   if(!response.has_value()) {
     res.set_content("", "text/html");
-    std::cout << data << std::endl;
+    std::cout << "[LOG:500]" << data << std::endl;
     res.status = 500;
     return;
   }
