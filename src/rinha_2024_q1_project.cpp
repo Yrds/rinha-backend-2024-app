@@ -13,15 +13,14 @@ void
 extract(const httplib::Request &req, httplib::Response &res) {
     auto connection = database::getConnection();
 
-    //TODO stoi fix
     auto search = req.path_params.find("id");
 
-    if (search != req.path_params.end()) {
+    if (search == req.path_params.end()) {
       res.status = 422;
       return;
     }
 
-    auto clientId = std::stoi(*search);
+    auto clientId = std::stoi(search->second);
 
     auto result = database::getExtractByClientId(connection.get(), clientId);
 
@@ -73,32 +72,9 @@ extract(const httplib::Request &req, httplib::Response &res) {
 void
 createTransaction(const httplib::Request &req, httplib::Response &res) {
   nlohmann::json data = nlohmann::json::parse(req.body);
-
-  std::cout << data << std::endl;
+  //FIXME Validate json
 
   auto clientId = std::stoi(req.path_params.at("id"));
-
-  //auto result = database::getExtractByClientId(connection.get(), clientId);
-
-  //if (!result.has_value()) {
-  //  switch(result.error()) {
-
-  //    default:
-  //      res.status = result.error() == "Not found" ? 404 : 500;
-  //      res.set_content(result.error(), "text/html");
-  //  }
-
-  //  return;
-  //}
-
-  /*flow
-   * start transaction
-   * verify if transaction.valor are greater than limite/saldo
-   *  if not return 402 and end transaction
-   *  if yes, proceed
-   * if yes, then procede with a (database)transaction to lock table
-   * return new balance(TransactionResponse)
-   */
 
   std::basic_string<unsigned char> transactionType {reinterpret_cast<const unsigned char*>(
          data["tipo"].template get<std::string>().c_str()
@@ -110,24 +86,70 @@ createTransaction(const httplib::Request &req, httplib::Response &res) {
    data["descricao"].template get<std::string>()
   };
 
-  auto connection = database::getConnection();
-
-
-  auto response = database::createTransaction(connection.get(), clientId, transaction);
-
-  if(response.has_value()) {
-    const auto responseObject = *response;
-
-    nlohmann::json responseJson;
-    responseJson["limite"] = responseObject.limite;
-    responseJson["saldo"] = responseObject.saldo;
-
-    res.status = 200;
-    res.set_content(responseJson.dump(), "application/json");
-  } else {
-    res.set_content(response.error(), "text/html");
-    res.status = 500;
+  if (transaction.valor <= 0) {
+    res.status = 422;
+    res.set_content("", "text/html");
+    return;
   }
+
+  if (transaction.tipo != models::TRANSACTION_TYPE::DEBIT &&
+      transaction.tipo != models::TRANSACTION_TYPE::CREDIT) {
+    res.status = 422;
+    res.set_content("", "text/html");
+    return;
+  }
+
+  if (transaction.descricao.size() >= 10) {
+    res.status = 422;
+    res.set_content("", "text/html");
+    return;
+  }
+
+  auto connection = database::getConnection(true);
+
+  auto balanceResult = database::getBalance(connection.get(), clientId);
+
+  if (!balanceResult.has_value()) {
+    switch(balanceResult.error()) {
+      case UNEXPECTED_CODE::NOT_FOUND:
+        res.status = 404;
+        break;
+      case UNEXPECTED_CODE::UNKNOWN:
+        res.status = 500;
+        break;
+    }
+
+    res.set_content("", "text/html");
+    return;
+  }
+
+  auto balance = balanceResult.value();
+
+  balance.saldo = balance.saldo + (transaction.tipo == models::TRANSACTION_TYPE::DEBIT ?
+    - transaction.valor :
+    transaction.valor);
+
+  if (-balance.saldo >= balance.limite) {
+    res.status = 422;
+    res.set_content("", "text/html");
+    return;
+  }
+
+  auto response = database::createTransaction(connection.get(), clientId, transaction, balance);
+
+  if(!response.has_value()) {
+    res.set_content("", "text/html");
+    std::cout << data << std::endl;
+    res.status = 500;
+    return;
+  }
+
+  nlohmann::json responseJson;
+  responseJson["limite"] = balance.limite;
+  responseJson["saldo"] = balance.saldo;
+
+  res.status = 200;
+  res.set_content(responseJson.dump(), "application/json");
 }
 
 void initDatabase() {
@@ -152,14 +174,14 @@ void initDatabase() {
 
 int
 main(int argc, char **argv) {
+    initDatabase();
 
-    //initDatabase();
     // HTTP
     httplib::Server svr;
 
     svr.Get(R"(/clientes/:id/extrato)", extract);
     svr.Post(R"(/clientes/:id/transacoes)", createTransaction);
 
-    svr.listen("0.0.0.0", 8080);
+    svr.listen("0.0.0.0", 9999);
     return 0;
 }
