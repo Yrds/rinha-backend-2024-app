@@ -17,40 +17,49 @@ extract(const httplib::Request &req, httplib::Response &res) {
 
     auto result = database::getExtractByClientId(connection.get(), clientId);
 
-    if (result.has_value()) {
-
-      auto& extract = *result;
-
-      auto transactionResult = database::getLastTransactionsByClientId(connection.get(), clientId);
-
-      if(transactionResult.has_value()) {
-        extract.ultimas_transacoes = *transactionResult;
+    if (!result.has_value()) {
+      switch(result.error()) {
+        case UNEXPECTED_CODE::NOT_FOUND:
+          res.status = 404;
+          break;
+        case UNEXPECTED_CODE::UNKNOWN:
+          res.status = 500;
+          break;
       }
 
-      nlohmann::json data;
-      data["saldo"]["data_extrato"] = std::format("{0:%FT%TZ}", extract.saldo.data_extrato);
-      data["saldo"]["limite"] = extract.saldo.limite;
-      data["saldo"]["total"] = extract.saldo.total;
-      data["saldo"]["ultimas_transacoes"] = nlohmann::json::array();
-
-      for(const auto& transaction: extract.ultimas_transacoes) {
-        nlohmann::json transactionData;
-
-        transactionData["valor"] = transaction.valor;
-        transactionData["tipo"] = std::string{static_cast<char>(transaction.tipo)};
-        transactionData["descricao"] = transaction.descricao;
-        transactionData["realizada_em"] = std::format("{0:%FT%TZ}", transaction.realizada_em);
-
-        data["saldo"]["ultimas_transacoes"].push_back(transactionData);
-      }
-
-      res.set_content(data.dump(), "application/json");
-      return;
+      res.set_content("", "text/html");
     }
 
-    res.status = result.error() == "Not found" ? 404 : 500;
+    auto &extract = *result;
 
-    res.set_content(result.error(), "text/html");
+    auto transactionResult =
+        database::getLastTransactionsByClientId(connection.get(), clientId);
+
+    if (transactionResult.has_value()) {
+      extract.ultimas_transacoes = *transactionResult;
+    }
+
+    nlohmann::json data;
+    data["saldo"]["data_extrato"] =
+        std::format("{0:%FT%TZ}", extract.saldo.data_extrato);
+    data["saldo"]["limite"] = extract.saldo.limite;
+    data["saldo"]["total"] = extract.saldo.total;
+    data["saldo"]["ultimas_transacoes"] = nlohmann::json::array();
+
+    for (const auto &transaction : extract.ultimas_transacoes) {
+      nlohmann::json transactionData;
+
+      transactionData["valor"] = transaction.valor;
+      transactionData["tipo"] = std::string{static_cast<char>(transaction.tipo)};
+      transactionData["descricao"] = transaction.descricao;
+      transactionData["realizada_em"] =
+          std::format("{0:%FT%TZ}", transaction.realizada_em);
+
+      data["saldo"]["ultimas_transacoes"].push_back(transactionData);
+    }
+
+    res.set_content(data.dump(), "application/json");
+    return;
 }
 
 void
@@ -58,6 +67,21 @@ createTransaction(const httplib::Request &req, httplib::Response &res) {
   nlohmann::json data = nlohmann::json::parse(req.body);
 
   std::cout << data << std::endl;
+
+  auto clientId = std::stoi(req.path_params.at("id"));
+
+  //auto result = database::getExtractByClientId(connection.get(), clientId);
+
+  //if (!result.has_value()) {
+  //  switch(result.error()) {
+
+  //    default:
+  //      res.status = result.error() == "Not found" ? 404 : 500;
+  //      res.set_content(result.error(), "text/html");
+  //  }
+
+  //  return;
+  //}
 
   /*flow
    * start transaction
@@ -80,7 +104,6 @@ createTransaction(const httplib::Request &req, httplib::Response &res) {
 
   auto connection = database::getConnection();
 
-  auto clientId = std::stoi(req.path_params.at("id"));
 
   auto response = database::createTransaction(connection.get(), clientId, transaction);
 

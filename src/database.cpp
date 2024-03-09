@@ -42,7 +42,7 @@ void run_stmt(Connection* connection, const char* sql) {
     }
 }
 
-std::expected<models::Extract, std::string>
+std::expected<models::Extract, UNEXPECTED_CODE>
 getExtractByClientId(Connection* connection, int clientId) {
 
     auto sql = R"(
@@ -62,7 +62,7 @@ getExtractByClientId(Connection* connection, int clientId) {
 
     if(rc == SQLITE_DONE) {
       sqlite3_finalize(stmt);
-      return std::unexpected("Not found");
+      return std::unexpected(UNEXPECTED_CODE::NOT_FOUND);
     }
 
     if(rc == SQLITE_ROW) {
@@ -77,10 +77,10 @@ getExtractByClientId(Connection* connection, int clientId) {
     }
 
     sqlite3_finalize(stmt);
-    return std::unexpected("Unknown error " + std::to_string(rc));
+    return std::unexpected(UNEXPECTED_CODE::UNKNOWN);
 }
 
-std::expected<std::vector<models::TransactionHistory>, std::string>
+std::expected<std::vector<models::TransactionHistory>, UNEXPECTED_CODE>
 getLastTransactionsByClientId(Connection* connection, int clientId) {
 
     auto sql = R"(
@@ -119,11 +119,13 @@ getLastTransactionsByClientId(Connection* connection, int clientId) {
       return transactionHistory;
     }
 
-    return std::unexpected("Unknown error " + std::to_string(rc));
+    return std::unexpected(UNEXPECTED_CODE::UNKNOWN);
 }
 
 std::expected<models::TransactionResponse, std::string>
 createTransaction(Connection* connection, const int clientId, const models::Transaction& transaction) {
+    int rc = sqlite3_exec(connection->db, "BEGIN TRANSACTION;", 0, 0, 0);
+
     auto sql = R"(
       INSERT INTO transacoes(cliente_id, valor, tipo, descricao, realizada_em)
       values(?, ?, ?, ?, ?);
@@ -131,7 +133,7 @@ createTransaction(Connection* connection, const int clientId, const models::Tran
 
     sqlite3_stmt* stmt = nullptr;
 
-    int rc = sqlite3_prepare_v2(connection->db, sql, 256, &stmt, nullptr);
+    rc = sqlite3_prepare_v2(connection->db, sql, 256, &stmt, nullptr);
 
     rc = sqlite3_bind_int(stmt, 1, clientId);
     rc = sqlite3_bind_int(stmt, 2, transaction.valor);
@@ -148,11 +150,24 @@ createTransaction(Connection* connection, const int clientId, const models::Tran
 
     sqlite3_finalize(stmt);
 
+    //if (transaction.tipo == models::TRANSACTION_TYPE::DEBIT) {
+    //  const auto debitSql = "UPDATE saldos SET valor=? where client_id = ?;";
+    //  rc = sqlite3_prepare_v2(connection->db, debitSql, 256, stmt, nullptr);
+
+    //  //TODO
+    //  rc = sqlite3_bind_int(stmt, 1, transaction.valor);
+    //  rc = sqlite3_bind_int(stmt, 2, 0);
+    //}
+
     if(rc == SQLITE_DONE) {
       return models::TransactionResponse();
+    } else {
+      sqlite3_exec(connection->db, "END TRANSACTION;", 0, 0, 0);
     }
 
     return std::unexpected("Unknown error " + std::to_string(rc));
 }
+
+
 
 }

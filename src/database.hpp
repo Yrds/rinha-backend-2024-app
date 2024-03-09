@@ -2,6 +2,7 @@
 #include <expected>
 
 #include "models.hpp"
+#include "unexpected_codes.hpp"
 
 namespace database {
 
@@ -13,10 +14,10 @@ void run_stmt(Connection*, const char *);
 
 //Model operations
 
-std::expected<models::Extract, std::string>
+std::expected<models::Extract, UNEXPECTED_CODE>
   getExtractByClientId(Connection* connection, int clientId);
 
-std::expected<std::vector<models::TransactionHistory>, std::string>
+std::expected<std::vector<models::TransactionHistory>, UNEXPECTED_CODE>
   getLastTransactionsByClientId(Connection* connection, int clientId);
 
 std::expected<models::TransactionResponse, std::string>
