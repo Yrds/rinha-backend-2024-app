@@ -11,7 +11,6 @@
 
 void
 extract(const httplib::Request &req, httplib::Response &res) {
-    auto connection = database::getConnection();
 
     auto search = req.path_params.find("id");
 
@@ -21,6 +20,8 @@ extract(const httplib::Request &req, httplib::Response &res) {
     }
 
     auto clientId = std::stoi(search->second);
+
+    auto connection = database::getConnection(true);
 
     auto result = database::getExtractByClientId(connection.get(), clientId);
 
@@ -65,13 +66,19 @@ extract(const httplib::Request &req, httplib::Response &res) {
       data["saldo"]["ultimas_transacoes"].push_back(transactionData);
     }
 
+    res.status = 200;
     res.set_content(data.dump(), "application/json");
-    return;
 }
 
 void
 createTransaction(const httplib::Request &req, httplib::Response &res) {
-  nlohmann::json data = nlohmann::json::parse(req.body);
+  nlohmann::json data = nlohmann::json::parse(req.body, nullptr, false);
+
+  if (data.is_discarded()) {
+      res.status = 422;
+      res.set_content("", "text/html");
+      return;
+  }
 
   if(data["tipo"].empty() || !data["tipo"].is_string()) {
       res.status = 422;
@@ -79,7 +86,7 @@ createTransaction(const httplib::Request &req, httplib::Response &res) {
       return;
   }
 
-  if(data["valor"].empty() || !data["valor"].is_number()) {
+  if(data["valor"].empty() || !data["valor"].is_number_integer()) {
       res.status = 422;
       res.set_content("", "text/html");
       return;
@@ -90,8 +97,6 @@ createTransaction(const httplib::Request &req, httplib::Response &res) {
       res.set_content("", "text/html");
       return;
   }
-
-  //FIXME Validate json
 
   auto clientId = std::stoi(req.path_params.at("id"));
 
@@ -144,9 +149,11 @@ createTransaction(const httplib::Request &req, httplib::Response &res) {
 
   auto balance = balanceResult.value();
 
-  balance.saldo = balance.saldo + (transaction.tipo == models::TRANSACTION_TYPE::DEBIT ?
-    - transaction.valor :
-    transaction.valor);
+  balance.saldo = balance.saldo + (
+      transaction.tipo == models::TRANSACTION_TYPE::DEBIT 
+      ? - transaction.valor
+      :   transaction.valor
+      );
 
   if (-balance.saldo >= balance.limite) {
     res.status = 422;
@@ -182,7 +189,7 @@ void initDatabase() {
         return;
     }
 
-    auto connection = database::getConnection();
+    auto connection = database::getConnection(false);
 
     std::stringstream sql;
 
@@ -197,6 +204,8 @@ main(int argc, char **argv) {
 
     // HTTP
     httplib::Server svr;
+
+    svr.new_task_queue = [] { return new httplib::ThreadPool(1); };
 
     svr.Get(R"(/clientes/:id/extrato)", extract);
     svr.Post(R"(/clientes/:id/transacoes)", createTransaction);
