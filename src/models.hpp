@@ -37,7 +37,7 @@ namespace models {
   };
 
   struct TransactionHistory: public Transaction {
-    std::chrono::time_point<std::chrono::system_clock>
+    std::chrono::time_point<std::chrono::system_clock, std::chrono::milliseconds>
       realizada_em;
   };
 

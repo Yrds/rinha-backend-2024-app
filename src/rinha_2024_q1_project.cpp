@@ -21,7 +21,7 @@ extract(const httplib::Request &req, httplib::Response &res) {
 
     auto clientId = std::stoi(search->second);
 
-    auto connection = database::getConnection();
+    auto connection = database::getConnection(true);
 
     auto result = database::getExtractByClientId(connection.get(), clientId);
 
@@ -42,6 +42,8 @@ extract(const httplib::Request &req, httplib::Response &res) {
 
     auto transactionResult =
         database::getLastTransactionsByClientId(connection.get(), clientId);
+
+    connection.reset();
 
     if (transactionResult.has_value()) {
       extract.ultimas_transacoes = *transactionResult;
@@ -110,7 +112,7 @@ createTransaction(const httplib::Request &req, httplib::Response &res) {
    data["descricao"].template get<std::string>()
   };
 
-  if (transaction.valor <= 0) {
+  if (transaction.valor < 0) {
     res.status = 422;
     res.set_content("", "text/html");
     return;
@@ -123,7 +125,7 @@ createTransaction(const httplib::Request &req, httplib::Response &res) {
     return;
   }
 
-  if (transaction.descricao.size() >= 10 || transaction.descricao.size() == 0) {
+  if (transaction.descricao.size() > 10 || transaction.descricao.size() == 0) {
     res.status = 422;
     res.set_content("", "text/html");
     return;

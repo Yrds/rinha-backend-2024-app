@@ -1,6 +1,7 @@
 #include "database.hpp"
 #include "sqlite3.h"
 #include <stdexcept>
+#include <string>
 
 #include <iostream>
 
@@ -22,8 +23,15 @@ struct Connection {
     //sqlite3_busy_timeout(db, 1000);
 
     if(transactional) {
-      rc = sqlite3_exec(db, "BEGIN", 0, 0, 0);
-      //std::cout << "Begin(" << rc << ")" << std::endl;
+      do {
+        rc = sqlite3_exec(db, "BEGIN IMMEDIATE", 0, 0, 0);
+      }
+      while(rc == SQLITE_BUSY);
+
+    }
+
+    if(rc != SQLITE_OK) {
+      throw std::runtime_error("DATABASE couldn't be created");
     }
   }
 
@@ -69,16 +77,12 @@ void deleteConnection(Connection* connection) {
   //std::cout << "Closing with exit code: " << connection->rc  << std::endl;
 
   if(connection->transactional) {
-    if(connection->rc == SQLITE_OK) {
-      do {
-        connection->rc = sqlite3_exec(connection->db, "END", 0, 0, 0);
-      } while (connection->rc == SQLITE_BUSY);
-      //std::cout << "Commit(" << connection->rc << ")" << std::endl;
-    } else {
-      do {
+    switch(connection->rc) {
+      default:
         connection->rc = sqlite3_exec(connection->db, "ROLLBACK", 0, 0, 0);
-      } while (connection->rc == SQLITE_BUSY);
-      //std::cout << "Rollback(" << connection->rc << ")" << std::endl;
+        __attribute__ ((fallthrough));
+      case SQLITE_OK:
+        connection->rc = sqlite3_exec(connection->db, "END", 0, 0, 0);
     }
   }
 
@@ -146,7 +150,7 @@ std::expected<std::vector<models::TransactionHistory>, UNEXPECTED_CODE>
 getLastTransactionsByClientId(Connection* connection, int clientId) {
 
     auto sql = R"(
-      SELECT valor, tipo, descricao, unixepoch(realizada_em, 'subsec') * 1000
+      SELECT valor, tipo, descricao, cast(unixepoch(realizada_em, 'subsec') * 1000 as integer)
       FROM transacoes
       WHERE cliente_id = ?
       ORDER BY realizada_em DESC
@@ -173,12 +177,17 @@ getLastTransactionsByClientId(Connection* connection, int clientId) {
       std::basic_string<unsigned char> type {sqlite3_column_text(connection->stmt, 1)};
       std::string description{reinterpret_cast<const char *>(sqlite3_column_text(connection->stmt, 2))};
       transactionHistory.push_back(models::TransactionHistory{
-        sqlite3_column_int(connection->stmt, 0),
-        static_cast<models::TRANSACTION_TYPE>(type.at(0)),
-        description,
+        {
+          sqlite3_column_int(connection->stmt, 0),
+          static_cast<models::TRANSACTION_TYPE>(type.at(0)),
+          description,
+        },
         std::chrono::time_point<std::chrono::system_clock, std::chrono::milliseconds>{
-            std::chrono::milliseconds{sqlite3_column_int(connection->stmt, 3)}
-            }
+          std::chrono::milliseconds{std::stol(std::string{
+            reinterpret_cast<const char*>(sqlite3_column_text(connection->stmt, 3))
+          }
+        )}
+        }
       });
 
       connection->command([&]() {
