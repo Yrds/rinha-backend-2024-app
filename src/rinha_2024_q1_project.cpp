@@ -21,7 +21,7 @@ extract(const httplib::Request &req, httplib::Response &res) {
 
     auto clientId = std::stoi(search->second);
 
-    auto connection = database::getConnection(true);
+    auto connection = database::getConnection();
 
     auto result = database::getExtractByClientId(connection.get(), clientId);
 
@@ -163,6 +163,8 @@ createTransaction(const httplib::Request &req, httplib::Response &res) {
 
   auto response = database::createTransaction(connection.get(), clientId, transaction, balance);
 
+  connection.reset();
+
   if(!response.has_value()) {
     res.set_content("", "text/html");
     std::cout << "[LOG:500]" << data << std::endl;
@@ -205,7 +207,7 @@ main(int argc, char **argv) {
     // HTTP
     httplib::Server svr;
 
-    svr.new_task_queue = [] { return new httplib::ThreadPool(1); };
+    //svr.new_task_queue = [] { return new httplib::ThreadPool(1, 18); };
 
     svr.Get(R"(/clientes/:id/extrato)", extract);
     svr.Post(R"(/clientes/:id/transacoes)", createTransaction);

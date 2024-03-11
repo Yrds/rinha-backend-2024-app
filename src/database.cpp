@@ -19,20 +19,37 @@ struct Connection {
       throw std::runtime_error("DATABASE couldn't be created");
     }
 
-    sqlite3_busy_timeout(db, 1000);
+    //sqlite3_busy_timeout(db, 1000);
 
     if(transactional) {
-      sqlite3_exec(db, "BEGIN IMMEDIATE;", 0, 0, 0);
+      rc = sqlite3_exec(db, "BEGIN", 0, 0, 0);
+      //std::cout << "Begin(" << rc << ")" << std::endl;
     }
   }
 
   template<typename Functor>
+  void prepare(Functor functor) {
+    if(stmt != nullptr) {
+      sqlite3_finalize(stmt);
+      //std::cout << "finalize" << std::endl;
+      stmt = nullptr;
+    }
+    command(functor);
+  } 
+
+  template<typename Functor>
   void command(Functor functor) {
+
     if(rc == SQLITE_DONE
         || rc == SQLITE_ROW
         || rc == SQLITE_OK) {
-      rc = functor();
-      std::cout << rc << std::endl;
+
+      do {
+        rc = functor();
+      } while(rc == SQLITE_BUSY);
+      //std::cout << rc << std::endl;
+    } else {
+      std::cout << "[SQLITE3_ERROR] " << sqlite3_errmsg(db) << std::endl;
     }
   }
 
@@ -42,24 +59,33 @@ struct Connection {
      command(functors);
     } (), ...);
   }
-
 };
 
 void deleteConnection(Connection* connection) {
   connection->rc = sqlite3_finalize(connection->stmt);
-  connection->rc = sqlite3_close(connection->db);
+  //std::cout << "finalize" << std::endl;
+  //std::cout << connection->rc << std::endl;
 
-  std::cout << "Closing with exit code: " << connection->rc  << std::endl;
-
-  if(connection->rc == SQLITE_OK && connection->transactional) {
-    sqlite3_exec(connection->db, "COMMIT;", 0, 0, 0);
-    std::cout << "Commit" << std::endl;
-    return;
-  }
+  //std::cout << "Closing with exit code: " << connection->rc  << std::endl;
 
   if(connection->transactional) {
-    std::cout << "Rollback" << std::endl;
-    sqlite3_exec(connection->db, "ROLLBACK;", 0, 0, 0);
+    if(connection->rc == SQLITE_OK) {
+      do {
+        connection->rc = sqlite3_exec(connection->db, "END", 0, 0, 0);
+      } while (connection->rc == SQLITE_BUSY);
+      //std::cout << "Commit(" << connection->rc << ")" << std::endl;
+    } else {
+      do {
+        connection->rc = sqlite3_exec(connection->db, "ROLLBACK", 0, 0, 0);
+      } while (connection->rc == SQLITE_BUSY);
+      //std::cout << "Rollback(" << connection->rc << ")" << std::endl;
+    }
+  }
+
+  connection->rc = sqlite3_close(connection->db);
+
+  if (connection->rc != SQLITE_OK) {
+    std::cout << "[SQLITE3_ERROR DELETE] " << sqlite3_errmsg(connection->db) << std::endl;
   }
 };
 
@@ -67,32 +93,37 @@ std::unique_ptr<Connection, void(*)(Connection*)> getConnection(bool transaction
   return std::unique_ptr<Connection, void (*)(Connection *)>(new Connection(transactional), deleteConnection);
 }
 
-void run_stmt(Connection* connection, const char* sql) {
-    char *zErrMsg = 0;
+void run_stmt(Connection *connection, const char *sql) {
+  char *zErrMsg = 0;
 
-    int rc = sqlite3_exec(connection->db, sql, nullptr, 0, &zErrMsg);
+  int rc = sqlite3_exec(connection->db, sql, nullptr, 0, &zErrMsg);
 
-    if(rc != SQLITE_OK) {
-      std::cerr << zErrMsg << std::endl;
-      sqlite3_free(zErrMsg);
-    }
+  if (rc != SQLITE_OK) {
+    std::cerr << zErrMsg << std::endl;
+    sqlite3_free(zErrMsg);
+  }
 }
 
 std::expected<models::Extract, UNEXPECTED_CODE>
-getExtractByClientId(Connection* connection, int clientId) {
+getExtractByClientId(Connection *connection, int clientId) {
 
     auto sql = R"(
       SELECT s.valor as total, c.limite as limite
       FROM clientes as c, saldos as s
       WHERE cliente_id = ? AND s.cliente_id = c.id
-      LIMIT 1;
+      LIMIT 1
     )";
 
+    connection->prepare([&]() {
+        return sqlite3_prepare_v2(connection->db, sql, -1, &(connection->stmt), nullptr); 
+    });
+
     connection->command(
-        [&]() { return sqlite3_prepare_v2(connection->db, sql, 256, &connection->stmt, nullptr); },
         [&]() { return sqlite3_bind_int(connection->stmt, 1, clientId); },
         [&]() { return sqlite3_step(connection->stmt); }
     );
+
+    //std::cout << sqlite3_expanded_sql(connection->stmt) << std::endl;
 
     if(connection->rc == SQLITE_DONE) {
       return std::unexpected(UNEXPECTED_CODE::NOT_FOUND);
@@ -119,21 +150,22 @@ getLastTransactionsByClientId(Connection* connection, int clientId) {
       FROM transacoes
       WHERE cliente_id = ?
       ORDER BY realizada_em DESC
-      LIMIT 10;
+      LIMIT 10
     )";
 
-    connection->command([&]() {
-      return sqlite3_prepare_v2(connection->db, sql, 256, &connection->stmt, nullptr);
+    connection->prepare([&]() {
+      return sqlite3_prepare_v2(connection->db, sql, -1, &(connection->stmt), nullptr);
     });
 
     connection->command([&]() {
       return sqlite3_bind_int(connection->stmt, 1, clientId);
     });
 
-
     connection->command([&]() {
       return sqlite3_step(connection->stmt);
     });
+
+    //std::cout << sqlite3_expanded_sql(connection->stmt) << std::endl;
 
     std::vector<models::TransactionHistory> transactionHistory;
 
@@ -154,8 +186,7 @@ getLastTransactionsByClientId(Connection* connection, int clientId) {
       });
     }
 
-
-    if(connection->rc == SQLITE_OK) {
+    if(connection->rc == SQLITE_DONE) {
       return transactionHistory;
     }
 
@@ -167,64 +198,46 @@ createTransaction(Connection* connection, const int clientId, const models::Tran
 
     auto sql = R"(
       INSERT INTO transacoes(cliente_id, valor, tipo, descricao, realizada_em)
-      values(?, ?, ?, ?, ?);
+      values(?, ?, ?, ?, ?)
     )";
 
-    connection->command([&]() {
-      return sqlite3_prepare_v2(connection->db, sql, 256, &connection->stmt, nullptr);
-    });
-
-    connection->command([&]() {
-      return sqlite3_bind_int(connection->stmt, 1, clientId);
-    });
-
-    connection->command([&]() {
-      return sqlite3_bind_int(connection->stmt, 2, transaction.valor);
+    connection->prepare([&]() {
+      return sqlite3_prepare_v2(connection->db, sql, -1, &(connection->stmt), nullptr);
     });
 
     const std::string type{static_cast<char>(transaction.tipo)};
-
-    connection->command([&]() {
-      return sqlite3_bind_text(connection->stmt, 3, type.c_str(), 1, SQLITE_STATIC);
-    });
-
-    connection->command([&]() {
-      return sqlite3_bind_text(connection->stmt, 4, transaction.descricao.c_str(), transaction.descricao.size(), SQLITE_STATIC);
-    });
-
     const std::string transactionTimeFormated = std::format("{0:%FT%TZ}", std::chrono::system_clock::now());
 
-    connection->command([&]() {
-      return sqlite3_bind_text(connection->stmt, 5, transactionTimeFormated.c_str(), transactionTimeFormated.size(), SQLITE_STATIC);
+    connection->command(
+        [&]() { return sqlite3_bind_int(connection->stmt, 1, clientId); },
+        [&]() { return sqlite3_bind_int(connection->stmt, 2, transaction.valor); },
+        [&]() { return sqlite3_bind_text(connection->stmt, 3, type.c_str(), 1, SQLITE_STATIC); },
+        [&]() {
+            return sqlite3_bind_text(connection->stmt, 4, transaction.descricao.c_str(),
+                                   transaction.descricao.size(), SQLITE_STATIC);
+        },
+        [&]() {
+            return sqlite3_bind_text(connection->stmt, 5, transactionTimeFormated.c_str(),
+                                   transactionTimeFormated.size(), SQLITE_STATIC);
+        },
+        [&]() { return sqlite3_step(connection->stmt); }
+    );
+
+    //std::cout << sqlite3_expanded_sql(connection->stmt) << std::endl;
+
+    auto updateSql = "UPDATE saldos SET valor = ? where cliente_id = ?";
+
+    connection->prepare([&]() {
+      return sqlite3_prepare_v2(connection->db, updateSql, -1, &(connection->stmt), nullptr);
     });
 
-    connection->command([&]() {
-      return sqlite3_step(connection->stmt);
-    });
+    connection->command(
+      [&]() { return sqlite3_bind_int(connection->stmt, 1, balance.saldo);},
+      [&]() { return sqlite3_bind_int(connection->stmt, 2, clientId);},
+      [&]() { return sqlite3_step(connection->stmt);}
+    );
 
-    const auto debitSql = "UPDATE saldos SET valor=? where cliente_id = ?;";
-
-    connection->command([&]() {
-      return sqlite3_prepare_v2(connection->db, debitSql, 256, &connection->stmt, nullptr);
-    });
-
-    if (connection->rc == SQLITE_ERROR) {
-
-
-      return std::unexpected(UNEXPECTED_CODE::UNKNOWN);
-    }
-
-    connection->command([&]() {
-      return sqlite3_bind_int(connection->stmt, 1, balance.saldo);
-    });
-
-    connection->command([&]() {
-      return sqlite3_bind_int(connection->stmt, 2, clientId);
-    });
-
-    connection->command([&]() {
-      return sqlite3_step(connection->stmt);
-    });
+    //std::cout << sqlite3_expanded_sql(connection->stmt) << std::endl;
 
     if(connection->rc == SQLITE_DONE) {
       return balance;
@@ -239,10 +252,10 @@ getBalance(Connection *connection, const int clientId) {
   auto sql = R"(
     SELECT s.valor as total, c.limite as limite
     FROM clientes as c,
-    saldos as s WHERE cliente_id = ? AND s.cliente_id = c.id LIMIT 1;)";
+    saldos as s WHERE cliente_id = ? AND s.cliente_id = c.id LIMIT 1)";
 
-  connection->command([&]() {
-    return sqlite3_prepare_v2(connection->db, sql, 256, &(connection->stmt), nullptr);
+  connection->prepare([&]() {
+    return sqlite3_prepare_v2(connection->db, sql, -1, &(connection->stmt), nullptr);
   });
 
   connection->command([&]() { return sqlite3_bind_int(connection->stmt, 1, clientId); });
